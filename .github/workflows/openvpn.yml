@@ -1,22 +1,21 @@
-name: OpenVPN with Pinggy Auto Client
+name: OpenVPN + Pinggy Tunnel (TCP 1194)
 
 on:
   workflow_dispatch:
 
 jobs:
-  vpn:
+  openvpn:
     runs-on: ubuntu-latest
     steps:
-      - name: Cài OpenVPN + SSH client
+      - name: Cài gói cần thiết
         run: |
-          sudo apt-get update
-          sudo apt-get install -y openvpn openssh-client easy-rsa net-tools
+          sudo apt update
+          sudo apt install -y openvpn openssh-client curl
 
-      - name: Tạo cấu hình OpenVPN server
+      - name: Tạo cấu hình server OpenVPN (TCP 1194)
         run: |
           mkdir -p ~/openvpn
-          cd ~/openvpn
-          cat <<EOF > server.conf
+          cat <<EOF > ~/openvpn/server.conf
 port 1194
 proto tcp
 dev tun
@@ -33,22 +32,21 @@ EOF
           sudo openvpn --config ~/openvpn/server.conf &
           sleep 5
 
-      - name: Kết nối tunnel Pinggy (TCP)
-        id: pinggy
+      - name: Tạo tunnel TCP 1194 qua pinggy.io
+        id: tunnel
         run: |
-          curl -s -N https://a.pinggy.io --data "forward=tcp://localhost:1194" > link.txt &
-          sleep 8
-          cat link.txt | tee /tmp/pinggy_link.txt
-          # Trích xuất link (ví dụ: tcp://random-a.pinggy.io:12345)
-          link=$(grep -o 'tcp://.*' /tmp/pinggy_link.txt | head -n1)
+          curl -s -N https://a.pinggy.io --data "forward=tcp://localhost:1194" > tunnel.log &
+          sleep 10
+          cat tunnel.log | tee /tmp/pinggy_log.txt
+          link=$(grep -o 'tcp://.*' /tmp/pinggy_log.txt | head -n1)
           echo "Tunnel link: $link"
           echo "link=$link" >> $GITHUB_OUTPUT
 
-      - name: Tạo file client.ovpn tự động
+      - name: Tạo file cấu hình client.ovpn
         run: |
-          link="${{ steps.pinggy.outputs.link }}"
-          host=$(echo $link | cut -d/ -f3 | cut -d: -f1)
-          port=$(echo $link | cut -d: -f3)
+          link="${{ steps.tunnel.outputs.link }}"
+          host=$(echo "$link" | cut -d/ -f3 | cut -d: -f1)
+          port=$(echo "$link" | cut -d: -f3)
           cat <<EOF > client.ovpn
 client
 dev tun
@@ -60,9 +58,9 @@ persist-key
 persist-tun
 verb 3
 EOF
-          echo "====== FILE client.ovpn ======"
+          echo "===== FILE client.ovpn ====="
           cat client.ovpn
-          echo "=============================="
-          
-      - name: Giữ cho workflow không dừng
+          echo "============================"
+
+      - name: Giữ workflow chạy 1 tiếng
         run: sleep 3600
