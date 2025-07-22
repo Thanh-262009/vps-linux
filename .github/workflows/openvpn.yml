@@ -1,0 +1,91 @@
+name: OpenVPN with Ngrok
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Cài OpenVPN và công cụ cần thiết
+      run: |
+        sudo apt update
+        sudo apt install -y openvpn easy-rsa curl unzip
+
+    - name: Cài đặt ngrok
+      run: |
+        curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+        echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+        sudo apt update && sudo apt install ngrok
+
+    - name: Cấu hình ngrok
+      env:
+        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+      run: |
+        ngrok config add-authtoken "$NGROK_AUTH_TOKEN"
+        ngrok tcp 1194 --log=stdout > ngrok.log &
+        sleep 5
+        NGROK_URL=$(curl -s http://localhost:4040/api/tunnels | grep -o 'tcp://[0-9a-zA-Z\.\-:]*')
+        echo "NGROK_URL=$NGROK_URL" >> $GITHUB_ENV
+
+    - name: Thiết lập EasyRSA và tạo server
+      run: |
+        make-cadir ~/openvpn-ca
+        cd ~/openvpn-ca
+        source vars
+        ./clean-all
+        ./build-ca --batch
+        ./build-key-server --batch server
+        ./build-dh
+        openvpn --genkey --secret keys/ta.key
+
+    - name: Tạo file cấu hình server.conf và khởi chạy OpenVPN
+      run: |
+        sudo cp ~/openvpn-ca/keys/{server.crt,server.key,ca.crt,dh2048.pem,ta.key} /etc/openvpn
+        echo "
+        port 1194
+        proto tcp
+        dev tun
+        ca ca.crt
+        cert server.crt
+        key server.key
+        dh dh2048.pem
+        tls-auth ta.key 0
+        keepalive 10 120
+        persist-key
+        persist-tun
+        status openvpn-status.log
+        verb 3
+        " | sudo tee /etc/openvpn/server.conf
+        sudo systemctl start openvpn@server
+        sudo systemctl enable openvpn@server
+        sleep 10
+
+    - name: Tạo client .ovpn file
+      run: |
+        mkdir -p client-configs/files
+        cp ~/openvpn-ca/keys/{ca.crt,ta.key} client-configs
+        echo "
+        client
+        dev tun
+        proto tcp
+        remote $(echo $NGROK_URL | cut -d'/' -f3 | cut -d':' -f1) $(echo $NGROK_URL | cut -d':' -f3)
+        resolv-retry infinite
+        nobind
+        persist-key
+        persist-tun
+        remote-cert-tls server
+        tls-auth ta.key 1
+        cipher AES-256-CBC
+        verb 3
+        <ca>
+        $(cat ~/openvpn-ca/keys/ca.crt)
+        </ca>
+        " > client-configs/files/client.ovpn
+
+    - name: Upload file .ovpn
+      uses: actions/upload-artifact@v4
+      with:
+        name: openvpn-ngrok-client
+        path: client-configs/files/client.ovpn
