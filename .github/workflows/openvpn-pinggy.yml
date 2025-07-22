@@ -1,4 +1,4 @@
-name: OpenVPN + Pinggy Tunnel (TCP 1194)
+name: OpenVPN + Pinggy Tunnel
 
 on:
   workflow_dispatch:
@@ -7,12 +7,12 @@ jobs:
   openvpn:
     runs-on: ubuntu-latest
     steps:
-      - name: Cài gói cần thiết
+      - name: Cài OpenVPN và curl
         run: |
           sudo apt update
-          sudo apt install -y openvpn openssh-client curl
+          sudo apt install -y openvpn curl
 
-      - name: Tạo cấu hình server OpenVPN (TCP 1194)
+      - name: Tạo cấu hình server OpenVPN đơn giản
         run: |
           mkdir -p ~/openvpn
           cat <<EOF > ~/openvpn/server.conf
@@ -30,19 +30,19 @@ EOF
       - name: Khởi động OpenVPN server
         run: |
           sudo openvpn --config ~/openvpn/server.conf &
-          sleep 5
+          sleep 10
 
-      - name: Tạo tunnel TCP 1194 qua pinggy.io
+      - name: Mở tunnel với Pinggy
         id: tunnel
         run: |
           curl -s -N https://a.pinggy.io --data "forward=tcp://localhost:1194" > tunnel.log &
           sleep 10
           cat tunnel.log | tee /tmp/pinggy_log.txt
           link=$(grep -o 'tcp://.*' /tmp/pinggy_log.txt | head -n1)
-          echo "Tunnel link: $link"
           echo "link=$link" >> $GITHUB_OUTPUT
+          echo "Tunnel: $link"
 
-      - name: Tạo file cấu hình client.ovpn
+      - name: Tạo file client.ovpn từ link Pinggy
         run: |
           link="${{ steps.tunnel.outputs.link }}"
           host=$(echo "$link" | cut -d/ -f3 | cut -d: -f1)
@@ -58,9 +58,9 @@ persist-key
 persist-tun
 verb 3
 EOF
-          echo "===== FILE client.ovpn ====="
+          echo "===== client.ovpn ====="
           cat client.ovpn
-          echo "============================"
+          echo "======================="
 
-      - name: Giữ workflow chạy 1 tiếng
+      - name: Giữ kết nối 1 giờ
         run: sleep 3600
