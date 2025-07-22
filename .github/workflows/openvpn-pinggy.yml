@@ -15,8 +15,7 @@ jobs:
       - name: Tạo cấu hình server OpenVPN đơn giản
         run: |
           mkdir -p ~/openvpn
-          cat <<EOF > ~/openvpn/server.conf
-port 1194
+          echo "port 1194
 proto tcp
 dev tun
 ifconfig 10.8.0.1 10.8.0.2
@@ -24,8 +23,7 @@ keepalive 10 120
 persist-key
 persist-tun
 status openvpn-status.log
-verb 3
-EOF
+verb 3" > ~/openvpn/server.conf
 
       - name: Khởi động OpenVPN server
         run: |
@@ -47,8 +45,7 @@ EOF
           link="${{ steps.tunnel.outputs.link }}"
           host=$(echo "$link" | cut -d/ -f3 | cut -d: -f1)
           port=$(echo "$link" | cut -d: -f3)
-          cat <<EOF > client.ovpn
-client
+          echo "client
 dev tun
 proto tcp
 remote $host $port
@@ -56,8 +53,7 @@ resolv-retry infinite
 nobind
 persist-key
 persist-tun
-verb 3
-EOF
+verb 3" > client.ovpn
           echo "===== client.ovpn ====="
           cat client.ovpn
           echo "======================="
